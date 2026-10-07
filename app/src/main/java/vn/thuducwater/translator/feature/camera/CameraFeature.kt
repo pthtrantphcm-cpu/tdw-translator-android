@@ -50,6 +50,7 @@ import vn.thuducwater.translator.engine.OcrLine
 import vn.thuducwater.translator.feature.friendlyError
 import vn.thuducwater.translator.feature.tdwViewModel
 import vn.thuducwater.translator.ui.components.ErrorText
+import vn.thuducwater.translator.ui.components.StatusText
 import vn.thuducwater.translator.ui.components.LanguageBar
 import vn.thuducwater.translator.ui.components.PERM_CAMERA
 import vn.thuducwater.translator.ui.components.hasPermission
@@ -66,6 +67,7 @@ data class CameraUiState(
     val imageWidth: Int = 1,
     val imageHeight: Int = 1,
     val error: String? = null,
+    val status: String? = null,
 )
 
 /** Webcam realtime: OCR định kỳ trên khung hình mới nhất, dịch và vẽ đè lên preview. */
@@ -122,14 +124,16 @@ class CameraViewModel(private val c: AppContainer) : ViewModel() {
                     s.src
                 }
                 val translated = lines.map { line ->
-                    val t = cache.getOrPut("$src|${line.text}") { c.translator.translate(line.text, src, s.tgt) }
+                    val t = cache.getOrPut("$src|${line.text}") {
+                        c.translator.translate(line.text, src, s.tgt) { msg -> _state.update { it.copy(status = msg) } }
+                    }
                     line.copy(translated = t)
                 }
                 if (cache.size > 500) cache.clear()
-                _state.update { it.copy(lines = translated, imageWidth = w, imageHeight = h, error = null) }
+                _state.update { it.copy(lines = translated, imageWidth = w, imageHeight = h, error = null, status = null) }
             } catch (e: Exception) {
                 proxy.close()
-                _state.update { it.copy(error = friendlyError("Lỗi OCR", e)) }
+                _state.update { it.copy(status = null, error = friendlyError("Lỗi OCR/dịch", e)) }
             } finally {
                 busy = false
             }
@@ -161,6 +165,7 @@ fun CameraScreen() {
             FilterChip(selected = s.frozen, onClick = { vm.setFrozen(!s.frozen) }, label = { Text("Đóng băng") })
             Text("${s.lines.size} dòng", style = MaterialTheme.typography.bodySmall)
         }
+        StatusText(s.status)
         ErrorText(s.error)
         if (s.running && hasPermission(context, PERM_CAMERA)) {
             Box(Modifier.fillMaxWidth().weight(1f)) {

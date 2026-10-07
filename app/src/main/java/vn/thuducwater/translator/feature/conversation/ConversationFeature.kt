@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -45,13 +44,13 @@ import vn.thuducwater.translator.engine.SpeechListener
 import vn.thuducwater.translator.feature.friendlyError
 import vn.thuducwater.translator.feature.tdwViewModel
 import vn.thuducwater.translator.ui.components.ErrorText
+import vn.thuducwater.translator.ui.components.StatusText
+import vn.thuducwater.translator.ui.components.LanguageBar
 import vn.thuducwater.translator.ui.components.PERM_MIC
 import vn.thuducwater.translator.ui.components.rememberPermissionAction
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-val PAIRS = listOf("vi" to "en", "vi" to "ja", "vi" to "zh", "vi" to "ko")
 
 data class ChatMessage(
     val speaker: String,
@@ -63,12 +62,16 @@ data class ChatMessage(
 )
 
 data class ConversationUiState(
-    val pair: Pair<String, String> = PAIRS.first(),
+    /** Ngôn ngữ người A nói và người B nói — chọn tự do trong 59 ngôn ngữ. */
+    val langA: String = "vi",
+    val langB: String = "en",
     val messages: List<ChatMessage> = emptyList(),
     /** "A" | "B" khi đang nghe */
     val activeSpeaker: String? = null,
     val speak: Boolean = true,
     val error: String? = null,
+    /** Trạng thái đang dịch / đang tải gói ngôn ngữ */
+    val status: String? = null,
 )
 
 /**
@@ -80,12 +83,19 @@ class ConversationViewModel(private val c: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(ConversationUiState())
     val state = _state.asStateFlow()
 
-    fun setPair(p: Pair<String, String>) = _state.update { it.copy(pair = p) }
+    fun setLangA(v: String) = _state.update { it.copy(langA = v) }
+    fun setLangB(v: String) = _state.update { it.copy(langB = v) }
+    fun swap() = _state.update { it.copy(langA = it.langB, langB = it.langA) }
     fun setSpeak(v: Boolean) = _state.update { it.copy(speak = v) }
     fun clear() = _state.update { it.copy(messages = emptyList()) }
 
     fun listen(speaker: String) {
-        val (a, b) = _state.value.pair
+        val a = _state.value.langA
+        val b = _state.value.langB
+        if (a == b) {
+            _state.update { it.copy(error = "Hai người phải nói hai ngôn ngữ khác nhau.") }
+            return
+        }
         val src = if (speaker == "A") a else b
         val tgt = if (speaker == "A") b else a
         c.tts.stop()
@@ -100,15 +110,15 @@ class ConversationViewModel(private val c: AppContainer) : ViewModel() {
     fun stop() = listener.stop()
 
     private fun onHeard(speaker: String, text: String, src: String, tgt: String) {
-        _state.update { it.copy(activeSpeaker = null) }
+        _state.update { it.copy(activeSpeaker = null, status = "Đang dịch…") }
         viewModelScope.launch {
             try {
-                val out = c.translator.translate(text, src, tgt)
+                val out = c.translator.translate(text, src, tgt) { msg -> _state.update { it.copy(status = msg) } }
                 c.history.add("conversation", text, out, src, tgt)
-                _state.update { it.copy(messages = it.messages + ChatMessage(speaker, text, out, src, tgt)) }
+                _state.update { it.copy(status = null, messages = it.messages + ChatMessage(speaker, text, out, src, tgt)) }
                 if (_state.value.speak) c.tts.speak(out, Languages.speechTag(tgt))
             } catch (e: Exception) {
-                _state.update { it.copy(error = friendlyError("Không dịch được", e)) }
+                _state.update { it.copy(status = null, error = friendlyError("Không dịch được", e)) }
             }
         }
     }
@@ -130,20 +140,17 @@ fun ConversationScreen() {
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PAIRS.forEach { p ->
-                FilterChip(
-                    selected = s.pair == p,
-                    onClick = { vm.setPair(p) },
-                    label = { Text("VI↔${p.second.uppercase()}") },
-                )
-            }
+        Row(Modifier.fillMaxWidth()) {
+            Text("Người A nói", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            Text("Người B nói", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
         }
+        LanguageBar(s.langA, s.langB, vm::setLangA, vm::setLangB, vm::swap, allowAuto = false)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = s.speak, onCheckedChange = vm::setSpeak)
             Text("Đọc bản dịch", modifier = Modifier.weight(1f))
             TextButton(onClick = vm::clear) { Text("Xóa") }
         }
+        StatusText(s.status)
         ErrorText(s.error)
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(s.messages) { m -> Bubble(m) }
@@ -155,7 +162,8 @@ fun ConversationScreen() {
             )
             LinearProgressIndicator(progress = { listen.level }, modifier = Modifier.fillMaxWidth())
         }
-        val (a, b) = s.pair
+        val a = s.langA
+        val b = s.langB
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SpeakerButton("A", a, s.activeSpeaker, Modifier.weight(1f), onStart = { withMic { vm.listen("A") } }, onStop = vm::stop)
             SpeakerButton("B", b, s.activeSpeaker, Modifier.weight(1f), onStart = { withMic { vm.listen("B") } }, onStop = vm::stop)

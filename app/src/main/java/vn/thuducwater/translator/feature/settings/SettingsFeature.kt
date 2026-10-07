@@ -66,7 +66,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         _state.update { it.copy(working = it.working + lang, error = null) }
         viewModelScope.launch {
             try {
-                if (has) c.translator.delete(lang) else c.translator.download(lang)
+                if (has) {
+                    c.translator.delete(lang)
+                } else {
+                    c.translator.download(lang) { msg -> _state.update { it.copy(info = msg) } }
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(error = friendlyError("Lỗi gói ${Languages.displayName(lang)}", e)) }
             } finally {

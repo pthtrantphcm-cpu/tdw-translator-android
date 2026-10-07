@@ -31,6 +31,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -47,6 +50,7 @@ import vn.thuducwater.translator.feature.friendlyError
 import vn.thuducwater.translator.feature.tdwViewModel
 import vn.thuducwater.translator.ui.components.ErrorText
 import vn.thuducwater.translator.ui.components.LanguageBar
+import vn.thuducwater.translator.ui.components.QuickLangRow
 
 data class TextUiState(
     val input: String = "",
@@ -88,8 +92,8 @@ class TextViewModel(private val c: AppContainer) : ViewModel() {
             try {
                 val t0 = System.currentTimeMillis()
                 val src = if (s.src == AUTO) c.translator.detect(s.input) ?: "en" else s.src
-                val out = c.translator.translate(s.input, src, s.tgt) {
-                    _state.update { it.copy(status = "Đang tải gói ngôn ngữ lần đầu (~30 MB mỗi ngôn ngữ)…") }
+                val out = c.translator.translate(s.input, src, s.tgt) { msg ->
+                    _state.update { it.copy(status = msg) }
                 }
                 val id = c.history.add("text", s.input, out, src, s.tgt)
                 _state.update {
@@ -117,6 +121,16 @@ class TextViewModel(private val c: AppContainer) : ViewModel() {
         val s = _state.value
         c.tts.speak(s.output, Languages.speechTag(s.tgt))?.let { err -> _state.update { it.copy(error = err) } }
     }
+
+    /** Đọc văn bản gốc; nguồn "Tự nhận diện" thì nhận diện ngôn ngữ trước rồi chọn giọng đúng tiếng. */
+    fun speakSource() {
+        val s = _state.value
+        if (s.input.isBlank()) return
+        viewModelScope.launch {
+            val lang = if (s.src == AUTO) (s.detected ?: c.translator.detect(s.input) ?: "en") else s.src
+            c.tts.speak(s.input, Languages.speechTag(lang))?.let { err -> _state.update { it.copy(error = err) } }
+        }
+    }
 }
 
 @Composable
@@ -124,12 +138,25 @@ fun TextScreen() {
     val vm = tdwViewModel { TextViewModel(it) }
     val s by vm.state.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val scroll = rememberScrollState()
+    val doTranslate = {
+        focus.clearFocus()
+        keyboard?.hide()
+        vm.translate()
+    }
+    // có bản dịch mới -> cuộn xuống cho thấy ngay, không bị bàn phím/khung nhập che
+    LaunchedEffect(s.output) {
+        if (s.output.isNotBlank()) scroll.animateScrollTo(scroll.maxValue)
+    }
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         LanguageBar(s.src, s.tgt, vm::setSrc, vm::setTgt, vm::swap, allowAuto = true)
+        QuickLangRow(s.tgt, vm::setTgt)
         OutlinedTextField(
             value = s.input,
             onValueChange = vm::onInput,
@@ -139,11 +166,14 @@ fun TextScreen() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${s.input.length} ký tự", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = vm::speakSource, enabled = s.input.isNotBlank()) {
+                Icon(Icons.Filled.VolumeUp, contentDescription = "Đọc văn bản gốc")
+            }
             IconButton(onClick = { clipboard.getText()?.let { vm.onInput(it.text) } }) {
                 Icon(Icons.Filled.ContentPaste, contentDescription = "Dán")
             }
             TextButton(onClick = vm::clear) { Text("Xóa") }
-            Button(onClick = vm::translate, enabled = !s.busy && s.input.isNotBlank()) { Text("Dịch") }
+            Button(onClick = doTranslate, enabled = !s.busy && s.input.isNotBlank()) { Text("Dịch") }
         }
         if (s.busy) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

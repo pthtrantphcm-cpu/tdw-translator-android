@@ -17,7 +17,7 @@ class AppContainer(context: Context) {
         Room.databaseBuilder(context, AppDatabase::class.java, "tdw_translator.db").build()
 
     val history = HistoryRepository(db.historyDao())
-    val translator = TranslatorEngine()
+    val translator = TranslatorEngine(context)
     val ocr = OcrEngine()
     val tts = TtsEngine(context)
     val prefs = Prefs(context)

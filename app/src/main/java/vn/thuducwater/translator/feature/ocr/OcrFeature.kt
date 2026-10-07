@@ -144,8 +144,8 @@ class OcrViewModel(private val c: AppContainer) : ViewModel() {
             val src = if (s.src == AUTO) c.translator.detect(joined) ?: "en" else s.src
             _state.update { it.copy(status = "Đang dịch ${lines.size} dòng…") }
             val translated = lines.map { line ->
-                line.copy(translated = c.translator.translate(line.text, src, s.tgt) {
-                    _state.update { it.copy(status = "Đang tải gói ngôn ngữ lần đầu…") }
+                line.copy(translated = c.translator.translate(line.text, src, s.tgt) { msg ->
+                    _state.update { it.copy(status = msg) }
                 })
             }
             val overlay = withContext(Dispatchers.Default) { renderOverlay(bmp, translated) }

@@ -6,7 +6,10 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -17,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,8 +46,15 @@ import vn.thuducwater.translator.data.Languages
 @Composable
 fun LanguageButton(code: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, allowAuto: Boolean = false) {
     var open by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = { open = true }, modifier = modifier) {
-        Text(Languages.displayName(code), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+    // Bỏ chữ "Tiếng " cho gọn (đã rõ là ngôn ngữ), giảm lề trong để tên dài vẫn hiện đủ
+    val label = Languages.displayName(code).removePrefix("Tiếng ")
+        .replaceFirstChar { it.uppercase() }
+    OutlinedButton(
+        onClick = { open = true },
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
     }
     if (open) {
@@ -85,6 +96,25 @@ private fun LanguageDialog(allowAuto: Boolean, onDismiss: () -> Unit, onPick: (S
     )
 }
 
+/** Ngôn ngữ đích hay dùng: bấm 1 lần là đổi, không phải mở danh sách 59 ngôn ngữ. */
+val QUICK_TARGETS = listOf(
+    "vi" to "Việt", "en" to "Anh", "ja" to "Nhật", "zh" to "Trung", "ko" to "Hàn",
+    "fr" to "Pháp", "de" to "Đức", "th" to "Thái", "ru" to "Nga", "es" to "T.B.Nha",
+)
+
+@Composable
+fun QuickLangRow(selected: String, onPick: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        QUICK_TARGETS.forEach { (code, name) ->
+            FilterChip(selected = selected == code, onClick = { onPick(code) }, label = { Text(name) })
+        }
+    }
+}
+
 /** Thanh chọn cặp ngôn ngữ nguồn ⇄ đích. */
 @Composable
 fun LanguageBar(src: String, tgt: String, onSrc: (String) -> Unit, onTgt: (String) -> Unit, onSwap: () -> Unit, allowAuto: Boolean) {
@@ -99,6 +129,14 @@ fun LanguageBar(src: String, tgt: String, onSrc: (String) -> Unit, onTgt: (Strin
     }
 }
 
+@Composable
+fun StatusText(message: String?) {
+    if (message != null) {
+        Text(message, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** Thông báo lỗi màu đỏ. */
 @Composable
 fun ErrorText(message: String?) {
     if (message != null) {

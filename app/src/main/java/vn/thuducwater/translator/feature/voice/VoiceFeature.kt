@@ -39,7 +39,9 @@ import vn.thuducwater.translator.engine.SpeechListener
 import vn.thuducwater.translator.feature.friendlyError
 import vn.thuducwater.translator.feature.tdwViewModel
 import vn.thuducwater.translator.ui.components.ErrorText
+import vn.thuducwater.translator.ui.components.StatusText
 import vn.thuducwater.translator.ui.components.LanguageBar
+import vn.thuducwater.translator.ui.components.QuickLangRow
 import vn.thuducwater.translator.ui.components.PERM_MIC
 import vn.thuducwater.translator.ui.components.rememberPermissionAction
 
@@ -49,6 +51,7 @@ data class VoiceUiState(
     val transcript: String = "",
     val translation: String = "",
     val busy: Boolean = false,
+    val status: String? = null,
     val speak: Boolean = true,
     val error: String? = null,
 )
@@ -85,15 +88,15 @@ class VoiceViewModel(private val c: AppContainer) : ViewModel() {
 
     private fun onTranscript(text: String) {
         val s = _state.value
-        _state.update { it.copy(transcript = text, busy = true) }
+        _state.update { it.copy(transcript = text, busy = true, status = "Đang dịch…") }
         viewModelScope.launch {
             try {
-                val out = c.translator.translate(text, s.src, s.tgt)
+                val out = c.translator.translate(text, s.src, s.tgt) { msg -> _state.update { it.copy(status = msg) } }
                 c.history.add("voice", text, out, s.src, s.tgt)
-                _state.update { it.copy(translation = out, busy = false) }
+                _state.update { it.copy(translation = out, busy = false, status = null) }
                 if (s.speak) replay()
             } catch (e: Exception) {
-                _state.update { it.copy(busy = false, error = friendlyError("Không dịch được", e)) }
+                _state.update { it.copy(busy = false, status = null, error = friendlyError("Không dịch được", e)) }
             }
         }
     }
@@ -120,6 +123,7 @@ fun VoiceScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         LanguageBar(s.src, s.tgt, vm::setSrc, vm::setTgt, vm::swap, allowAuto = false)
+        QuickLangRow(s.tgt, vm::setTgt)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(onClick = { withMic { vm.start() } }, enabled = !listen.listening, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Filled.Mic, contentDescription = null)
@@ -143,6 +147,7 @@ fun VoiceScreen() {
             Checkbox(checked = s.speak, onCheckedChange = vm::setSpeak)
             Text("Tự đọc bản dịch")
         }
+        if (s.busy) StatusText(s.status)
         ErrorText(s.error)
         if (s.transcript.isNotBlank()) {
             Card(Modifier.fillMaxWidth()) {

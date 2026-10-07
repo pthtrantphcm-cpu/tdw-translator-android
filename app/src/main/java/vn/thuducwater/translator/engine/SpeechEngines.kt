@@ -130,8 +130,31 @@ class TtsEngine(context: Context) : TextToSpeech.OnInitListener {
         if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
             return "Máy chưa có giọng đọc cho ngôn ngữ này (Cài đặt > Đọc văn bản)."
         }
+        pickVoice(Locale.forLanguageTag(speechTag))
+        tts.setSpeechRate(0.95f) // chậm hơn một chút cho rõ
+        tts.setPitch(1.0f)
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tdw-${System.nanoTime()}")
         return null
+    }
+
+    /**
+     * Chọn giọng tốt nhất cho ngôn ngữ: ưu tiên giọng đã tải về máy (không cần mạng, không bị ngắt),
+     * chất lượng cao, tên có dấu hiệu giọng nam. Không chọn được thì giữ giọng mặc định.
+     */
+    private fun pickVoice(locale: Locale) {
+        val voices = try { tts.voices } catch (e: Exception) { null } ?: return
+        val best = voices
+            .filter { it.locale.language == locale.language }
+            .filter { "notInstalled" !in it.features }
+            .maxByOrNull { v ->
+                val name = v.name.lowercase(Locale.ROOT)
+                var score = v.quality
+                if (!v.isNetworkConnectionRequired) score += 1000
+                if (v.locale.country == locale.country) score += 200
+                if ("male" in name && "female" !in name) score += 100
+                score
+            } ?: return
+        if (tts.voice?.name != best.name) tts.voice = best
     }
 
     fun stop() {
